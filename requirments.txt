@@ -1,3 +1,13 @@
+streamlit
+yfinance
+pandas
+numpy
+plotly
+scikit-learn
+pandas_ta
+feedparser
+textblob
+matplotlib
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -9,4 +19,5 @@ from statsmodels.tsa.arima.model import ARIMA
 from datetime import timedelta
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
+
 from tensorflow.keras.layers import LSTM, Dense
