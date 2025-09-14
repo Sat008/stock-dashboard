@@ -1,23 +1,12 @@
-streamlit
-yfinance
-pandas
-numpy
-plotly
-scikit-learn
-pandas_ta
-feedparser
-textblob
-matplotlib
-import streamlit as st
-import yfinance as yf
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import plotly.graph_objects as go
-import feedparser
-from statsmodels.tsa.arima.model import ARIMA
-from datetime import timedelta
-from sklearn.preprocessing import MinMaxScaler
-from tensorflow.keras.models import Sequential
-
-from tensorflow.keras.layers import LSTM, Dense
+streamlit==1.37.0
+yfinance==0.2.40
+pandas==2.2.2
+numpy==1.26.4
+matplotlib==3.9.1
+plotly==5.24.0
+feedparser==6.0.11
+textblob==0.17.1
+scikit-learn==1.5.1
+pandas_ta==0.3.14b
+statsmodels==0.14.2
+tensorflow==2.16.1
