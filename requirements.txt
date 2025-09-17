@@ -7,6 +7,6 @@ plotly==5.24.0
 feedparser==6.0.11
 textblob==0.17.1
 scikit-learn==1.5.1
-pandas_ta==0.3.14b
+pandas_ta
 statsmodels==0.14.2
 tensorflow==2.16.1
