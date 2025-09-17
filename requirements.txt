@@ -10,3 +10,5 @@ scikit-learn
 pandas_ta
 statsmodels
 tensorflow
+transformers
+torch
