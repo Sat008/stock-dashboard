@@ -1131,23 +1131,13 @@ elif section == "Chart Toolbox":
     buf = BytesIO()
     fig.savefig(buf, format="png", bbox_inches='tight', dpi=100)
     buf.seek(0)
-    bg_img = Image.open(buf).convert("RGBA")
+    bg_img = Image.open(buf).convert("RGB")   # use RGB not RGBA
     plt.close(fig)
-
-    img_w, img_h = bg_img.size
-
-    # canvas
-    tool_choice = st.radio(
-        "Select Tool",
-        ["Fibonacci Retracement", "Fibonacci Projection", "Fibonacci Fan",
-         "Elliott Wave", "Gartley Pattern", "Trend Lines"],
-        horizontal=True
-    )
-
+    
     canvas_result = st_canvas(
         stroke_width=2,
         stroke_color="#ff0000",
-        background_image=bg_img,
+        background_image=bg_img,   # now valid
         update_streamlit=True,
         height=img_h,
         width=img_w,
@@ -1155,6 +1145,7 @@ elif section == "Chart Toolbox":
         key="toolbox_canvas",
         display_toolbar=True,
     )
+
 
     if canvas_result.json_data:
         st.session_state["canvas_objects"] = canvas_result.json_data.get("objects", [])
