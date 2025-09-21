@@ -59,7 +59,8 @@ section = st.sidebar.radio(
         "LSTM Forecast",
         "News Sentiment",
         "Technical & Sentiment Analyzer",
-        "Capital Allocation Matrix"
+        "Capital Allocation Matrix",
+        "Chart Toolbox",
     ]
 )
 
@@ -1103,3 +1104,112 @@ elif section == "Capital Allocation Matrix":
     st.dataframe(score_df[["Ticker","Total Score","Sharpe Ratio","Avg Sentiment Score","RPN","Technical Score","Final Score","Allocation %","Capital Allocation (₹)"]], use_container_width=True)
     fig = px.pie(score_df, names='Ticker', values='Capital Allocation (₹)', title='💹 Capital Allocation')
     st.plotly_chart(fig, use_container_width=True)
+
+elif section == "Chart Toolbox":
+    from streamlit_drawable_canvas import st_canvas
+    import matplotlib.pyplot as plt
+    from io import BytesIO
+    from PIL import Image
+    import gc
+
+    st.subheader("🧰 Chart Drawing Toolbox")
+
+    ticker = tickers[0] if tickers else st.text_input("Enter ticker", "AAPL")
+    df = yf.download(ticker, period="6mo", interval="1d", auto_adjust=True)
+
+    # background chart
+    fig, ax = plt.subplots(figsize=(10,4))
+    ax.plot(df.index, df['Close'], linewidth=1)
+    ax.grid(alpha=0.3)
+    buf = BytesIO()
+    fig.savefig(buf, format="png", bbox_inches='tight', dpi=100)
+    buf.seek(0)
+    bg_img = Image.open(buf).convert("RGBA")
+    plt.close(fig)
+
+    img_w, img_h = bg_img.size
+
+    # canvas
+    tool_choice = st.radio(
+        "Select Tool",
+        ["Fibonacci Retracement", "Fibonacci Projection", "Fibonacci Fan",
+         "Elliott Wave", "Gartley Pattern", "Trend Lines"],
+        horizontal=True
+    )
+
+    canvas_result = st_canvas(
+        stroke_width=2,
+        stroke_color="#ff0000",
+        background_image=bg_img,
+        update_streamlit=True,
+        height=img_h,
+        width=img_w,
+        drawing_mode=st.selectbox("Drawing mode", ["line", "point"]),
+        key="toolbox_canvas",
+        display_toolbar=True,
+    )
+
+    if canvas_result.json_data:
+        st.session_state["canvas_objects"] = canvas_result.json_data.get("objects", [])
+
+    # ------------------
+    # Helper: convert pixel → (date, price)
+    # ------------------
+    def px_to_price(px_y):
+        ymin, ymax = df['Close'].min(), df['Close'].max()
+        return ymax - (px_y/img_h) * (ymax-ymin)
+
+    def px_to_date(px_x):
+        idx = int((px_x/img_w) * (len(df.index)-1))
+        return df.index[idx]
+
+    # ------------------
+    # Use drawings
+    # ------------------
+    objs = st.session_state.get("canvas_objects", [])
+
+    if tool_choice == "Fibonacci Retracement" and st.button("Apply Fibonacci"):
+        last_line = next((o for o in reversed(objs) if o.get("type")=="line"), None)
+        if last_line:
+            x1, y1 = last_line["left"], last_line["top"]
+            x2, y2 = x1+last_line["width"], y1+last_line["height"]
+            p1, p2 = px_to_price(y1), px_to_price(y2)
+            high, low = max(p1,p2), min(p1,p2)
+            fig = plot_fibonacci_retracement(df, high, low)
+            st.pyplot(fig)
+        else:
+            st.warning("Draw a line first.")
+
+    elif tool_choice == "Elliott Wave" and st.button("Apply Elliott"):
+        pts = [o for o in objs if o.get("type")=="circle"]
+        if len(pts) >= 5:
+            prices = [px_to_price(o["top"]) for o in pts[:5]]
+            fig = plot_elliott_wave(df, prices)
+            st.pyplot(fig)
+        else:
+            st.warning("Mark at least 5 points.")
+
+    elif tool_choice == "Gartley Pattern" and st.button("Apply Gartley"):
+        pts = [o for o in objs if o.get("type")=="circle"]
+        if len(pts) >= 5:
+            prices = [px_to_price(o["top"]) for o in pts[:5]]
+            fig = plot_gartley_pattern(df, prices)
+            st.pyplot(fig)
+        else:
+            st.warning("Mark 5 points (X,A,B,C,D).")
+
+    elif tool_choice == "Trend Lines" and st.button("Apply Trend Lines"):
+        lines = []
+        for o in objs:
+            if o.get("type")=="line":
+                x1,y1 = o["left"], o["top"]
+                x2,y2 = x1+o["width"], y1+o["height"]
+                lines.append((int(px_to_date(x1).day), px_to_price(y1),
+                              int(px_to_date(x2).day), px_to_price(y2)))
+        if lines:
+            fig = plot_trend_lines(df, lines)
+            st.pyplot(fig)
+        else:
+            st.warning("Draw at least one line.")
+
+    gc.collect()
