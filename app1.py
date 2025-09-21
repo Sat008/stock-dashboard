@@ -1139,8 +1139,8 @@ elif section == "Chart Toolbox":
         stroke_color="#ff0000",
         background_image=bg_img,   # now valid
         update_streamlit=True,
-        height=img_h,
-        width=img_w,
+        height=400,
+        width=500,
         drawing_mode=st.selectbox("Drawing mode", ["line", "point"]),
         key="toolbox_canvas",
         display_toolbar=True,
