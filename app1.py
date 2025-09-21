@@ -12,7 +12,14 @@ import matplotlib.pyplot as plt
 from urllib.parse import quote_plus
 from textblob import TextBlob
 import logging
-
+from chart_tools import (
+    plot_fibonacci_retracement,
+    plot_fibonacci_projection,
+    plot_fibonacci_fan,
+    plot_elliott_wave,
+    plot_gartley_pattern,
+    plot_trend_lines
+)
 # Optional libraries guarded when used
 try:
     import pandas_ta as pta
