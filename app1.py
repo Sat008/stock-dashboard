@@ -1113,72 +1113,124 @@ elif section == "Capital Allocation Matrix":
     st.plotly_chart(fig, use_container_width=True)
 
 elif section == "Chart Toolbox":
-    from streamlit_drawable_canvas import st_canvas
-    import matplotlib.pyplot as plt
-    from io import BytesIO
-    from PIL import Image
-    import gc
-
     st.subheader("🧰 Chart Drawing Toolbox")
 
-    ticker = tickers[0] if tickers else st.text_input("Enter ticker", "AAPL")
-    df = yf.download(ticker, period="6mo", interval="1d", auto_adjust=True)
-
-    # background chart
-    fig, ax = plt.subplots(figsize=(10,4))
-    ax.plot(df.index, df['Close'], linewidth=1)
-    ax.grid(alpha=0.3)
-    buf = BytesIO()
-    fig.savefig(buf, format="png", bbox_inches='tight', dpi=100)
-    buf.seek(0)
-    bg_img = Image.open(buf).convert("RGB")   # use RGB not RGBA
-    plt.close(fig)
+    import io, base64, gc
+    from PIL import Image
+    from streamlit_drawable_canvas import st_canvas
+    import streamlit as st
+    import matplotlib.pyplot as plt
     
+    # ----------------------------
+    # Select ticker
+    # ----------------------------
+    tickers = st.session_state.get("tickers", ["AAPL", "MSFT", "GOOG"])
+    selected_ticker = st.selectbox("Select ticker to annotate:", tickers)
+    
+    # ----------------------------
+    # Prepare background image for the selected ticker
+    # ----------------------------
+    if "ticker_figs" in st.session_state and selected_ticker in st.session_state["ticker_figs"]:
+        fig = st.session_state["ticker_figs"][selected_ticker]
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", bbox_inches='tight', dpi=100)
+        buf.seek(0)
+        bg_img = Image.open(buf).convert("RGB")
+        plt.close(fig)
+    else:
+        bg_img = None
+    
+    # ----------------------------
+    # Dynamic canvas sizing
+    # ----------------------------
+    if bg_img:
+        orig_h, orig_w = bg_img.height, bg_img.width
+    else:
+        orig_h, orig_w = 400, 500
+    
+    container_width = st.session_state.get("container_width", 700)
+    aspect_ratio = orig_h / orig_w
+    canvas_w = container_width
+    canvas_h = int(container_width * aspect_ratio)
+    
+    # Convert bg_img to base64 for canvas
+    if bg_img is not None:
+        buf = io.BytesIO()
+        bg_img.save(buf, format="PNG")
+        buf.seek(0)
+        bg_img_b64 = base64.b64encode(buf.read()).decode("utf-8")
+        bg_img_data = f"data:image/png;base64,{bg_img_b64}"
+    else:
+        bg_img_data = None
+    
+    # ----------------------------
+    # Initialize per-ticker canvas state
+    # ----------------------------
+    if "ticker_canvas_objects" not in st.session_state:
+        st.session_state["ticker_canvas_objects"] = {}
+    
+    # Load previous objects for this ticker if they exist
+    initial_objects = st.session_state["ticker_canvas_objects"].get(selected_ticker, [])
+    
+    # ----------------------------
+    # Display canvas
+    # ----------------------------
     canvas_result = st_canvas(
         stroke_width=2,
         stroke_color="#ff0000",
-        background_image=bg_img,   # now valid
+        background_image=bg_img_data,
         update_streamlit=True,
-        height=400,
-        width=500,
+        height=canvas_h,
+        width=canvas_w,
         drawing_mode=st.selectbox("Drawing mode", ["line", "point"]),
-        key="toolbox_canvas",
+        key=f"canvas_{selected_ticker}",
         display_toolbar=True,
+        initial_drawing=initial_objects  # pre-load previous drawings
     )
-
-
+    
+    # ----------------------------
+    # Save canvas objects per ticker
+    # ----------------------------
     if canvas_result.json_data:
-        st.session_state["canvas_objects"] = canvas_result.json_data.get("objects", [])
-
-    # ------------------
-    # Helper: convert pixel → (date, price)
-    # ------------------
+        st.session_state["ticker_canvas_objects"][selected_ticker] = canvas_result.json_data.get("objects", [])
+    
+    objs = st.session_state["ticker_canvas_objects"].get(selected_ticker, [])
+    
+    # ----------------------------
+    # Helper functions: pixel → date/price
+    # ----------------------------
     def px_to_price(px_y):
         ymin, ymax = df['Close'].min(), df['Close'].max()
-        return ymax - (px_y/img_h) * (ymax-ymin)
-
+        return ymax - (px_y / canvas_h) * (ymax - ymin)
+    
     def px_to_date(px_x):
-        idx = int((px_x/img_w) * (len(df.index)-1))
+        idx = int((px_x / canvas_w) * (len(df.index) - 1))
         return df.index[idx]
-
-    # ------------------
-    # Use drawings
-    # ------------------
-    objs = st.session_state.get("canvas_objects", [])
-
-    if tool_choice == "Fibonacci Retracement" and st.button("Apply Fibonacci"):
+    
+    # ----------------------------
+    # Drawing tools
+    # ----------------------------
+    tool_buttons = {
+        "Fibonacci": f"fib_{selected_ticker}",
+        "Elliott": f"elliott_{selected_ticker}",
+        "Gartley": f"gartley_{selected_ticker}",
+        "Trend Lines": f"trend_{selected_ticker}"
+    }
+    
+    # Fibonacci Retracement
+    if tool_choice == "Fibonacci Retracement" and st.button("Apply Fibonacci", key=tool_buttons["Fibonacci"]):
         last_line = next((o for o in reversed(objs) if o.get("type")=="line"), None)
         if last_line:
             x1, y1 = last_line["left"], last_line["top"]
-            x2, y2 = x1+last_line["width"], y1+last_line["height"]
-            p1, p2 = px_to_price(y1), px_to_price(y2)
-            high, low = max(p1,p2), min(p1,p2)
+            x2, y2 = x1 + last_line["width"], y1 + last_line["height"]
+            high, low = max(px_to_price(y1), px_to_price(y2)), min(px_to_price(y1), px_to_price(y2))
             fig = plot_fibonacci_retracement(df, high, low)
             st.pyplot(fig)
         else:
             st.warning("Draw a line first.")
-
-    elif tool_choice == "Elliott Wave" and st.button("Apply Elliott"):
+    
+    # Elliott Wave
+    elif tool_choice == "Elliott Wave" and st.button("Apply Elliott", key=tool_buttons["Elliott"]):
         pts = [o for o in objs if o.get("type")=="circle"]
         if len(pts) >= 5:
             prices = [px_to_price(o["top"]) for o in pts[:5]]
@@ -1186,8 +1238,9 @@ elif section == "Chart Toolbox":
             st.pyplot(fig)
         else:
             st.warning("Mark at least 5 points.")
-
-    elif tool_choice == "Gartley Pattern" and st.button("Apply Gartley"):
+    
+    # Gartley Pattern
+    elif tool_choice == "Gartley Pattern" and st.button("Apply Gartley", key=tool_buttons["Gartley"]):
         pts = [o for o in objs if o.get("type")=="circle"]
         if len(pts) >= 5:
             prices = [px_to_price(o["top"]) for o in pts[:5]]
@@ -1195,19 +1248,26 @@ elif section == "Chart Toolbox":
             st.pyplot(fig)
         else:
             st.warning("Mark 5 points (X,A,B,C,D).")
-
-    elif tool_choice == "Trend Lines" and st.button("Apply Trend Lines"):
+    
+    # Trend Lines
+    elif tool_choice == "Trend Lines" and st.button("Apply Trend Lines", key=tool_buttons["Trend Lines"]):
         lines = []
         for o in objs:
             if o.get("type")=="line":
-                x1,y1 = o["left"], o["top"]
-                x2,y2 = x1+o["width"], y1+o["height"]
-                lines.append((int(px_to_date(x1).day), px_to_price(y1),
-                              int(px_to_date(x2).day), px_to_price(y2)))
+                x1, y1 = o["left"], o["top"]
+                x2, y2 = x1 + o["width"], y1 + o["height"]
+                lines.append((
+                    int(px_to_date(x1).day), px_to_price(y1),
+                    int(px_to_date(x2).day), px_to_price(y2)
+                ))
         if lines:
             fig = plot_trend_lines(df, lines)
             st.pyplot(fig)
         else:
             st.warning("Draw at least one line.")
-
+    
+    # ----------------------------
+    # Cleanup
+    # ----------------------------
     gc.collect()
+
