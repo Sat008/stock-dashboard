@@ -13,3 +13,8 @@ tensorflow
 transformers
 torch
 streamlit-plotly-events
+seaborn
+scipy
+feedparser
+streamlit-drawable-canvas
+pillow
