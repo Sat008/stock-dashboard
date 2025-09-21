@@ -1128,7 +1128,7 @@ elif section == "Chart Toolbox":
     selected_ticker = st.selectbox("Select ticker to annotate:", tickers)
     
     # ----------------------------
-    # Prepare background image for the selected ticker
+    # Prepare background image for selected ticker
     # ----------------------------
     if "ticker_figs" in st.session_state and selected_ticker in st.session_state["ticker_figs"]:
         fig = st.session_state["ticker_figs"][selected_ticker]
@@ -1170,7 +1170,8 @@ elif section == "Chart Toolbox":
         st.session_state["ticker_canvas_objects"] = {}
     
     # Load previous objects for this ticker if they exist
-    initial_objects = st.session_state["ticker_canvas_objects"].get(selected_ticker, [])
+    prev_objects = st.session_state["ticker_canvas_objects"].get(selected_ticker, [])
+    initial_drawing = {"objects": prev_objects} if prev_objects else None
     
     # ----------------------------
     # Display canvas
@@ -1185,7 +1186,7 @@ elif section == "Chart Toolbox":
         drawing_mode=st.selectbox("Drawing mode", ["line", "point"]),
         key=f"canvas_{selected_ticker}",
         display_toolbar=True,
-        initial_drawing=initial_objects  # pre-load previous drawings
+        initial_drawing=initial_drawing  # pass dict, not list
     )
     
     # ----------------------------
@@ -1195,6 +1196,13 @@ elif section == "Chart Toolbox":
         st.session_state["ticker_canvas_objects"][selected_ticker] = canvas_result.json_data.get("objects", [])
     
     objs = st.session_state["ticker_canvas_objects"].get(selected_ticker, [])
+    
+    # ----------------------------
+    # Clear Ticker Canvas Button
+    # ----------------------------
+    if st.button("Clear Canvas for this Ticker"):
+        st.session_state["ticker_canvas_objects"][selected_ticker] = []
+        st.experimental_rerun()  # reload canvas immediately
     
     # ----------------------------
     # Helper functions: pixel → date/price
