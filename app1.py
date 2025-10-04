@@ -67,8 +67,7 @@ section = st.sidebar.radio(
         "News Sentiment",
         "Technical & Sentiment Analyzer",
         "Capital Allocation Matrix",
-        "Chart Toolbox",
-    ]
+            ]
 )
 
 # ---------------------------
@@ -1113,169 +1112,195 @@ elif section == "Capital Allocation Matrix":
     st.plotly_chart(fig, use_container_width=True)
 
 elif section == "Chart Toolbox":
-    st.subheader("🧰 Chart Drawing Toolbox")
-
-    import io, base64, gc
-    from PIL import Image
-    from streamlit_drawable_canvas import st_canvas
     import streamlit as st
-    import matplotlib.pyplot as plt
+    import yfinance as yf
+    import pandas as pd
+    import plotly.graph_objects as go
+    from streamlit_plotly_events import plotly_events
     
     # ----------------------------
-    # Select ticker
+    # Tick selection
     # ----------------------------
     tickers = st.session_state.get("tickers", ["AAPL", "MSFT", "GOOG"])
-    selected_ticker = st.selectbox("Select ticker to annotate:", tickers)
+    selected_ticker = st.selectbox("Select ticker:", tickers)
     
     # ----------------------------
-    # Prepare background image for selected ticker
+    # Load data (cached)
     # ----------------------------
-    if "ticker_figs" in st.session_state and selected_ticker in st.session_state["ticker_figs"]:
-        fig = st.session_state["ticker_figs"][selected_ticker]
-        buf = io.BytesIO()
-        fig.savefig(buf, format="png", bbox_inches='tight', dpi=100)
-        buf.seek(0)
-        bg_img = Image.open(buf).convert("RGB")
-        plt.close(fig)
-    else:
-        bg_img = None
+    @st.cache_data(show_spinner=False)
+    def load_data(ticker):
+        df = yf.Ticker(ticker).history(period="6mo")
+        if df.empty:
+            return pd.DataFrame()
+        df.reset_index(inplace=True)
+        return df
     
-    # ----------------------------
-    # Dynamic canvas sizing
-    # ----------------------------
-    if bg_img:
-        orig_h, orig_w = bg_img.height, bg_img.width
-    else:
-        orig_h, orig_w = 400, 500
-    
-    container_width = st.session_state.get("container_width", 700)
-    aspect_ratio = orig_h / orig_w
-    canvas_w = container_width
-    canvas_h = int(container_width * aspect_ratio)
-    
-    # Convert bg_img to base64 for canvas
-    if bg_img is not None:
-        buf = io.BytesIO()
-        bg_img.save(buf, format="PNG")
-        buf.seek(0)
-        bg_img_b64 = base64.b64encode(buf.read()).decode("utf-8")
-        bg_img_data = f"data:image/png;base64,{bg_img_b64}"
-    else:
-        bg_img_data = None
+    df = load_data(selected_ticker)
+    if df.empty:
+        st.warning(f"No data for {selected_ticker}")
+        st.stop()
     
     # ----------------------------
-    # Initialize per-ticker canvas state
+    # Initialize session state
     # ----------------------------
-    if "ticker_canvas_objects" not in st.session_state:
-        st.session_state["ticker_canvas_objects"] = {}
+    if "overlays" not in st.session_state:
+        st.session_state["overlays"] = {}
+    if selected_ticker not in st.session_state["overlays"]:
+        st.session_state["overlays"][selected_ticker] = []
     
-    # Load previous objects for this ticker if they exist
-    prev_objects = st.session_state["ticker_canvas_objects"].get(selected_ticker, [])
-    initial_drawing = {"objects": prev_objects} if prev_objects else None
-    
-    # ----------------------------
-    # Display canvas
-    # ----------------------------
-    canvas_result = st_canvas(
-        stroke_width=2,
-        stroke_color="#ff0000",
-        background_image=bg_img_data,
-        update_streamlit=True,
-        height=canvas_h,
-        width=canvas_w,
-        drawing_mode=st.selectbox("Drawing mode", ["line", "point"]),
-        key=f"canvas_{selected_ticker}",
-        display_toolbar=True,
-        initial_drawing=initial_drawing  # pass dict, not list
-    )
+    if "elliott_input" not in st.session_state:
+        st.session_state["elliott_input"] = []
+    if "fib_input" not in st.session_state:
+        st.session_state["fib_input"] = []
+    if "gartley_input" not in st.session_state:
+        st.session_state["gartley_input"] = []
     
     # ----------------------------
-    # Save canvas objects per ticker
+    # Chart container
     # ----------------------------
-    if canvas_result.json_data:
-        st.session_state["ticker_canvas_objects"][selected_ticker] = canvas_result.json_data.get("objects", [])
+    def plot_chart():
+        fig = go.Figure(data=[go.Candlestick(
+            x=df['Date'],
+            open=df['Open'],
+            high=df['High'],
+            low=df['Low'],
+            close=df['Close'],
+            increasing_line_color='green',
+            decreasing_line_color='red',
+            name="Candlestick"
+        )])
     
-    objs = st.session_state["ticker_canvas_objects"].get(selected_ticker, [])
-    
-    # ----------------------------
-    # Clear Ticker Canvas Button
-    # ----------------------------
-    if st.button("Clear Canvas for this Ticker"):
-        st.session_state["ticker_canvas_objects"][selected_ticker] = []
-        st.experimental_rerun()  # reload canvas immediately
-    
-    # ----------------------------
-    # Helper functions: pixel → date/price
-    # ----------------------------
-    def px_to_price(px_y):
-        ymin, ymax = df['Close'].min(), df['Close'].max()
-        return ymax - (px_y / canvas_h) * (ymax - ymin)
-    
-    def px_to_date(px_x):
-        idx = int((px_x / canvas_w) * (len(df.index) - 1))
-        return df.index[idx]
-    
-    # ----------------------------
-    # Drawing tools
-    # ----------------------------
-    tool_buttons = {
-        "Fibonacci": f"fib_{selected_ticker}",
-        "Elliott": f"elliott_{selected_ticker}",
-        "Gartley": f"gartley_{selected_ticker}",
-        "Trend Lines": f"trend_{selected_ticker}"
-    }
-    
-    # Fibonacci Retracement
-    if tool_choice == "Fibonacci Retracement" and st.button("Apply Fibonacci", key=tool_buttons["Fibonacci"]):
-        last_line = next((o for o in reversed(objs) if o.get("type")=="line"), None)
-        if last_line:
-            x1, y1 = last_line["left"], last_line["top"]
-            x2, y2 = x1 + last_line["width"], y1 + last_line["height"]
-            high, low = max(px_to_price(y1), px_to_price(y2)), min(px_to_price(y1), px_to_price(y2))
-            fig = plot_fibonacci_retracement(df, high, low)
-            st.pyplot(fig)
-        else:
-            st.warning("Draw a line first.")
-    
-    # Elliott Wave
-    elif tool_choice == "Elliott Wave" and st.button("Apply Elliott", key=tool_buttons["Elliott"]):
-        pts = [o for o in objs if o.get("type")=="circle"]
-        if len(pts) >= 5:
-            prices = [px_to_price(o["top"]) for o in pts[:5]]
-            fig = plot_elliott_wave(df, prices)
-            st.pyplot(fig)
-        else:
-            st.warning("Mark at least 5 points.")
-    
-    # Gartley Pattern
-    elif tool_choice == "Gartley Pattern" and st.button("Apply Gartley", key=tool_buttons["Gartley"]):
-        pts = [o for o in objs if o.get("type")=="circle"]
-        if len(pts) >= 5:
-            prices = [px_to_price(o["top"]) for o in pts[:5]]
-            fig = plot_gartley_pattern(df, prices)
-            st.pyplot(fig)
-        else:
-            st.warning("Mark 5 points (X,A,B,C,D).")
-    
-    # Trend Lines
-    elif tool_choice == "Trend Lines" and st.button("Apply Trend Lines", key=tool_buttons["Trend Lines"]):
-        lines = []
-        for o in objs:
-            if o.get("type")=="line":
-                x1, y1 = o["left"], o["top"]
-                x2, y2 = x1 + o["width"], y1 + o["height"]
-                lines.append((
-                    int(px_to_date(x1).day), px_to_price(y1),
-                    int(px_to_date(x2).day), px_to_price(y2)
+        # Add existing overlays
+        for overlay in st.session_state["overlays"][selected_ticker]:
+            o_type = overlay["type"]
+            if o_type == "line":
+                fig.add_shape(type="line",
+                              x0=overlay["x0"], y0=overlay["y0"],
+                              x1=overlay["x1"], y1=overlay["y1"],
+                              line=dict(color=overlay.get("color","red"), width=2))
+            elif o_type == "elliott":
+                xs, ys, labels = overlay["xs"], overlay["ys"], overlay["labels"]
+                for x, y, label in zip(xs, ys, labels):
+                    fig.add_trace(go.Scatter(
+                        x=[x], y=[y],
+                        mode="markers+text",
+                        marker=dict(size=10, color="blue" if label.isnumeric() else "red"),
+                        text=[label],
+                        textposition="top center",
+                        name=label
+                    ))
+                fig.add_trace(go.Scatter(
+                    x=xs, y=ys,
+                    mode="lines",
+                    line=dict(color="blue", dash="dot"),
+                    name="Elliott Wave"
                 ))
-        if lines:
-            fig = plot_trend_lines(df, lines)
-            st.pyplot(fig)
-        else:
-            st.warning("Draw at least one line.")
+            elif o_type.startswith("fib"):
+                for line in overlay["lines"]:
+                    fig.add_shape(type="line",
+                                  x0=line["x0"], y0=line["y0"],
+                                  x1=line["x1"], y1=line["y1"],
+                                  line=dict(color=line.get("color","orange"), width=2, dash=line.get("dash","dot")))
+            elif o_type == "gartley":
+                xs, ys = overlay["xs"], overlay["ys"]
+                fig.add_trace(go.Scatter(
+                    x=xs, y=ys,
+                    mode="lines+markers",
+                    line=dict(color="purple", dash="dash"),
+                    marker=dict(size=8, color="purple"),
+                    name="Gartley"
+                ))
+    
+        fig.update_layout(height=700, autosize=True, xaxis_rangeslider_visible=False)
+        st.plotly_chart(fig, use_container_width=True)
+        return fig
+    
+    fig = plot_chart()
     
     # ----------------------------
-    # Cleanup
+    # Toolbox for new drawings
     # ----------------------------
-    gc.collect()
+    st.subheader("Add Overlay")
+    overlay_type = st.selectbox("Select overlay type", ["Line", "Elliott Wave",
+                                                        "Fibonacci Retracement", "Fibonacci Projection",
+                                                        "Fibonacci Fan", "Gartley"])
+    
+    # ----------------------------
+    # Simple Line
+    # ----------------------------
+    if overlay_type == "Line":
+        col1, col2 = st.columns(2)
+        with col1:
+            start_date = st.date_input("Start Date", df['Date'].iloc[0], key="line_start_date")
+            start_price = st.number_input("Start Price", float(df['Low'].min()), float(df['High'].max()),
+                                          float(df['Close'].iloc[-1]), key="line_start_price")
+        with col2:
+            end_date = st.date_input("End Date", df['Date'].iloc[-1], key="line_end_date")
+            end_price = st.number_input("End Price", float(df['Low'].min()), float(df['High'].max()),
+                                        float(df['Close'].iloc[-1]), key="line_end_price")
+        if st.button("Add Line"):
+            st.session_state["overlays"][selected_ticker].append({
+                "type":"line", "x0":start_date, "y0":start_price, "x1":end_date, "y1":end_price
+            })
+            fig = plot_chart()
+    
+    # ----------------------------
+    # Elliott Wave
+    # ----------------------------
+    elif overlay_type == "Elliott Wave":
+        st.info("Click points (0-5, A-C) on chart")
+        new_points = plotly_events(fig, click_event=True, override_width="100%", override_height=600)
+        if new_points:
+            st.session_state["elliott_input"].extend(new_points)
+    
+        if len(st.session_state["elliott_input"]) >= 1:
+            xs, ys = [], []
+            for pt in st.session_state["elliott_input"]:
+                idx = pt["pointNumber"]
+                xs.append(df['Date'].iloc[idx])
+                ys.append(df['Close'].iloc[idx])
+            labels = ['0','1','2','3','4','5','A','B','C'][:len(xs)]
+            st.session_state["overlays"][selected_ticker].append({"type":"elliott","xs":xs,"ys":ys,"labels":labels})
+            st.session_state["elliott_input"] = []
+            fig = plot_chart()
+    
+    # ----------------------------
+    # Fibonacci Overlays
+    # ----------------------------
+    elif overlay_type.startswith("Fibonacci"):
+        st.warning("Select 2 points for Fibonacci overlay")
+        new_points = plotly_events(fig, click_event=True, override_width="100%", override_height=600)
+        if len(new_points) >= 2:
+            idx1, idx2 = new_points[0]["pointNumber"], new_points[1]["pointNumber"]
+            y1, y2 = df['Close'].iloc[idx1], df['Close'].iloc[idx2]
+            x1, x2 = df['Date'].iloc[idx1], df['Date'].iloc[idx2]
+            levels = [0.236,0.382,0.5,0.618,0.786]
+            lines = []
+            for l in levels:
+                y = y2 - (y2 - y1)*l
+                lines.append({"x0":x1,"y0":y,"x1":x2,"y1":y})
+            st.session_state["overlays"][selected_ticker].append({"type":"fib","lines":lines})
+            fig = plot_chart()
+    
+    # ----------------------------
+    # Gartley Pattern
+    # ----------------------------
+    elif overlay_type == "Gartley":
+        st.warning("Select 5 points for Gartley pattern")
+        new_points = plotly_events(fig, click_event=True, override_width="100%", override_height=600)
+        if len(new_points) >= 5:
+            xs, ys = [], []
+            for pt in new_points[:5]:
+                idx = pt["pointNumber"]
+                xs.append(df['Date'].iloc[idx])
+                ys.append(df['Close'].iloc[idx])
+            st.session_state["overlays"][selected_ticker].append({"type":"gartley","xs":xs,"ys":ys})
+            fig = plot_chart()
+    
+    # ----------------------------
+    # Clear overlays
+    # ----------------------------
+    if st.button("Clear All Overlays"):
+        st.session_state["overlays"][selected_ticker] = []
+        fig = plot_chart()
 
